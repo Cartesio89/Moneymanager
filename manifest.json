@@ -1,6 +1,6 @@
 {
-  "name": "FinTrack Pro",
-  "short_name": "FinTrack",
+  "name": "Moneymanager",
+  "short_name": "Moneymanager",
   "description": "Gestione finanze personali offline-first",
   "start_url": "./",
   "display": "standalone",

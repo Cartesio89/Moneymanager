@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fintrack-v2';
+const CACHE_NAME = 'Moneymanager';
 const urlsToCache = [
   './',
   './index.html'
@@ -30,4 +30,5 @@ self.addEventListener('activate', event => {
       );
     })
   );
+
 });

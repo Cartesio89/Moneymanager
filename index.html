@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1f2937">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>FinTrack Pro</title>
+  <title>MoneyManager</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.tailwindcss.com"></script>
@@ -25,7 +25,7 @@
     }
 
     const { createClient } = supabase;
-    const DB_NAME = 'FinTrackDB';
+    const DB_NAME = 'MoneyManagerDB';
     const DB_VERSION = 2;
 
     function generateUUID() {
@@ -599,7 +599,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'fintrack_' + state.filterYear + '.csv';
+      a.download = 'moneymanager_' + state.filterYear + '.csv';
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -672,7 +672,7 @@
       let html = `
         <header class="bg-gray-800 p-4 flex items-center justify-between sticky top-0 z-40 border-b border-gray-700">
           <button onclick="state.menuOpen = !state.menuOpen; render();" class="p-2 hover:bg-gray-700 rounded">☰</button>
-          <h1 class="text-xl font-bold text-blue-400">FinTrack Pro</h1>
+          <h1 class="text-xl font-bold text-blue-400">MoneyManager</h1>
           ${state.supabaseClient ? `
             <button onclick="syncBidirectional()" class="p-2 hover:bg-gray-700 rounded ${state.syncing ? 'opacity-50' : ''}" ${state.syncing ? 'disabled' : ''}>
               ${state.syncing ? '⟳' : '🔄'}

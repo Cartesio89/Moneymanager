@@ -924,7 +924,7 @@
                 <span class="text-sm">Nascondi dalle analisi</span>
               </label>
               <div class="flex gap-2">
-                <button onclick="saveTransaction({description: document.getElementById('tx-desc').value, accountId: document.getElementById('tx-acc').value, categoryId: parseInt(document.getElementById('tx-cat').value), type: document.getElementById('tx-type').value, amount: parseFloat(document.getElementById('tx-amount').value), date: document.getElementById('tx-date').value, hidden: document.getElementById('tx-hidden').checked, createdAt: '${editing?.createdAt || new Date().toISOString()}', updatedAt: new Date().toISOString()})" class="flex-1 bg-blue-600 hover:bg-blue-700 rounded p-2 font-bold">Salva</button>
+                <button onclick="saveTransaction({description: document.getElementById('tx-desc').value, accountId: document.getElementById('tx-acc').value, categoryId: document.getElementById('tx-cat').value, type: document.getElementById('tx-type').value, amount: parseFloat(document.getElementById('tx-amount').value), date: document.getElementById('tx-date').value, hidden: document.getElementById('tx-hidden').checked, createdAt: '${editing?.createdAt || new Date().toISOString()}', updatedAt: new Date().toISOString()})" class="flex-1 bg-blue-600 hover:bg-blue-700 rounded p-2 font-bold">Salva</button>
                 <button onclick="closeModal()" class="flex-1 bg-gray-700 hover:bg-gray-600 rounded p-2">Annulla</button>
               </div>
             </div>

@@ -549,6 +549,7 @@
     function getFiltered() {
       return state.transactions.filter(tx => {
         const txDate = new Date(tx.date);
+        if (tx.deleted) return false;
         if (txDate.getFullYear() !== state.filterYear) return false;
         if (tx.hidden && state.view !== 'hidden') return false;
         if (state.filterAccount !== 'all' && tx.accountId !== state.filterAccount) return false;
@@ -822,7 +823,7 @@
       }
 
       if (state.view === 'hidden') {
-        const hidden = state.transactions.filter(tx => tx.hidden && new Date(tx.date).getFullYear() === state.filterYear).sort((a,b) => new Date(b.date) - new Date(a.date));
+        const hidden = state.transactions.filter(tx => !tx.deleted && tx.hidden && new Date(tx.date).getFullYear() === state.filterYear).sort((a,b) => new Date(b.date) - new Date(a.date));
         let hiddenTotal = 0;
         hidden.forEach(tx => {
           hiddenTotal += tx.type === 'income' ? parseFloat(tx.amount) : -parseFloat(tx.amount);

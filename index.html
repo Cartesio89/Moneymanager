@@ -42,8 +42,8 @@
       categories: [],
       transactions: [],
       filterYear: new Date().getFullYear(),
-      filterAccount: 'all',
-      filterCategory: 'all',
+      filterAccount: [],
+      filterCategory: [],
       menuOpen: false,
       currentModal: null,
       editingItem: null,
@@ -248,7 +248,7 @@
             date: tx.date,
             hidden: tx.hidden,
             created_at: tx.createdAt,
-            updated_at: tx.updatedAt || tx.createdAt,
+            updated_at: tx.updated_at || tx.updatedAt || tx.createdAt,
             deleted: tx.deleted || false,
             deleted_at: tx.deleted_at || null,
             source: 'local'
@@ -552,8 +552,8 @@
         if (tx.deleted) return false;
         if (txDate.getFullYear() !== state.filterYear) return false;
         if (tx.hidden && state.view !== 'hidden') return false;
-        if (state.filterAccount !== 'all' && tx.accountId !== state.filterAccount) return false;
-        if (state.filterCategory !== 'all' && tx.categoryId !== state.filterCategory) return false;
+        if (state.filterAccount.length > 0 && !state.filterAccount.includes(tx.accountId)) return false;
+        if (state.filterCategory.length > 0 && !state.filterCategory.includes(tx.categoryId)) return false;
         return true;
       });
     }
@@ -645,6 +645,32 @@
       render();
     }
 
+    function toggleFilterAccount(accountId) {
+      const index = state.filterAccount.indexOf(accountId);
+      if (index === -1) {
+        state.filterAccount.push(accountId);
+      } else {
+        state.filterAccount.splice(index, 1);
+      }
+      render();
+    }
+
+    function toggleFilterCategory(categoryId) {
+      const index = state.filterCategory.indexOf(categoryId);
+      if (index === -1) {
+        state.filterCategory.push(categoryId);
+      } else {
+        state.filterCategory.splice(index, 1);
+      }
+      render();
+    }
+
+    function clearFilters() {
+      state.filterAccount = [];
+      state.filterCategory = [];
+      render();
+    }
+
     function render() {
       const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
       const monthlyData = getMonthlyData();
@@ -701,14 +727,47 @@
       if (state.view === 'dashboard') {
         html += `
           <div class="bg-gray-800 rounded-lg p-4 mb-4">
-            <select onchange="state.filterAccount = this.value; render();" class="w-full bg-gray-700 rounded p-2 mb-2">
-              <option value="all">Tutti i conti</option>
-              ${state.accounts.map(acc => `<option value="${acc.id}" ${state.filterAccount == acc.id ? 'selected' : ''}>${acc.name}</option>`).join('')}
-            </select>
-            <select onchange="state.filterCategory = this.value; render();" class="w-full bg-gray-700 rounded p-2 mb-2">
-              <option value="all">Tutte categorie</option>
-              ${state.categories.map(cat => `<option value="${cat.id}" ${state.filterCategory == cat.id ? 'selected' : ''}>${cat.name}</option>`).join('')}
-            </select>
+            <div class="mb-4">
+              <div class="flex justify-between items-center mb-2">
+                <label class="text-sm font-bold text-gray-400">Conti</label>
+                ${state.filterAccount.length > 0 ? `<button onclick="state.filterAccount = []; render();" class="text-xs text-blue-400 hover:text-blue-300">Reset</button>` : ''}
+              </div>
+              <div class="max-h-32 overflow-y-auto space-y-1">
+                ${state.accounts.map(acc => `
+                  <label class="flex items-center gap-2 p-2 hover:bg-gray-700 rounded cursor-pointer">
+                    <input type="checkbox" ${state.filterAccount.includes(acc.id) ? 'checked' : ''} 
+                      onchange="toggleFilterAccount('${acc.id}')" 
+                      class="w-4 h-4">
+                    <span class="text-sm">${acc.name}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+            
+            <div class="mb-4">
+              <div class="flex justify-between items-center mb-2">
+                <label class="text-sm font-bold text-gray-400">Categorie</label>
+                ${state.filterCategory.length > 0 ? `<button onclick="state.filterCategory = []; render();" class="text-xs text-blue-400 hover:text-blue-300">Reset</button>` : ''}
+              </div>
+              <div class="max-h-32 overflow-y-auto space-y-1">
+                ${state.categories.map(cat => `
+                  <label class="flex items-center gap-2 p-2 hover:bg-gray-700 rounded cursor-pointer">
+                    <input type="checkbox" ${state.filterCategory.includes(cat.id) ? 'checked' : ''} 
+                      onchange="toggleFilterCategory('${cat.id}')" 
+                      class="w-4 h-4">
+                    <span class="w-3 h-3 rounded-full" style="background-color: ${cat.color}"></span>
+                    <span class="text-sm">${cat.name}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+            
+            ${state.filterAccount.length > 0 || state.filterCategory.length > 0 ? `
+              <button onclick="clearFilters()" class="w-full bg-red-600 hover:bg-red-700 rounded p-2 mb-2 text-sm font-bold">
+                🗑️ Cancella tutti i filtri
+              </button>
+            ` : ''}
+            
             <input type="number" value="${state.filterYear}" onchange="state.filterYear = parseInt(this.value); render();" class="w-full bg-gray-700 rounded p-2 mb-2" />
             <button onclick="exportCSV()" class="w-full bg-green-600 hover:bg-green-700 rounded p-2 font-bold flex items-center justify-center gap-2">
               📥 Esporta CSV

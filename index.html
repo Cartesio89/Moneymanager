@@ -43,8 +43,9 @@
       transactions: [],
       filterYear: new Date().getFullYear(),
       filterAccount: [],
+      filterMacroCategory: [],
       filterCategory: [],
-      filterDropdownOpen: { account: false, category: false },
+      filterDropdownOpen: { account: false, macro: false, category: false },
       menuOpen: false,
       currentModal: null,
       editingItem: null,
@@ -560,6 +561,15 @@
         if (txDate.getFullYear() !== state.filterYear) return false;
         if (tx.hidden && state.view !== 'hidden') return false;
         if (state.filterAccount.length > 0 && !state.filterAccount.includes(tx.accountId)) return false;
+        
+        // Filtro macrocategoria
+        if (state.filterMacroCategory.length > 0) {
+          const txCategory = state.categories.find(c => c.id === tx.categoryId);
+          if (!txCategory || !state.filterMacroCategory.includes(txCategory.macroCategory || 'Spese variabili')) {
+            return false;
+          }
+        }
+        
         if (state.filterCategory.length > 0 && !state.filterCategory.includes(tx.categoryId)) return false;
         return true;
       });
@@ -662,6 +672,16 @@
       render();
     }
 
+    function toggleFilterMacroCategory(macro) {
+      const index = state.filterMacroCategory.indexOf(macro);
+      if (index === -1) {
+        state.filterMacroCategory.push(macro);
+      } else {
+        state.filterMacroCategory.splice(index, 1);
+      }
+      render();
+    }
+
     function toggleFilterCategory(categoryId) {
       const index = state.filterCategory.indexOf(categoryId);
       if (index === -1) {
@@ -674,6 +694,7 @@
 
     function clearFilters() {
       state.filterAccount = [];
+      state.filterMacroCategory = [];
       state.filterCategory = [];
       render();
     }
@@ -768,7 +789,36 @@
               ` : ''}
             </div>
             
-            <!-- Filtro Categorie -->
+            <!-- Filtro Macrocategorie -->
+            <div class="mb-4 relative">
+              <button 
+                onclick="toggleFilterDropdown('macro')" 
+                class="w-full bg-gray-700 rounded p-3 flex justify-between items-center hover:bg-gray-600">
+                <span class="text-sm font-bold">
+                  Macrocategorie ${state.filterMacroCategory.length > 0 ? `(${state.filterMacroCategory.length})` : '(tutte)'}
+                </span>
+                <span>${state.filterDropdownOpen.macro ? '▲' : '▼'}</span>
+              </button>
+              ${state.filterDropdownOpen.macro ? `
+                <div class="absolute z-10 w-full bg-gray-700 rounded mt-1 shadow-lg">
+                  ${['Spese fisse', 'Spese variabili', 'Entrate'].map(macro => `
+                    <label class="flex items-center gap-2 p-2 hover:bg-gray-600 cursor-pointer">
+                      <input type="checkbox" ${state.filterMacroCategory.includes(macro) ? 'checked' : ''} 
+                        onchange="toggleFilterMacroCategory('${macro}')" 
+                        class="w-4 h-4">
+                      <span class="text-sm">${macro}</span>
+                    </label>
+                  `).join('')}
+                  ${state.filterMacroCategory.length > 0 ? `
+                    <button onclick="state.filterMacroCategory = []; render();" class="w-full p-2 text-xs text-blue-400 hover:bg-gray-600 border-t border-gray-600">
+                      Reset
+                    </button>
+                  ` : ''}
+                </div>
+              ` : ''}
+            </div>
+            
+            <!-- Filtro Categorie (filtrate per macrocategorie selezionate) -->
             <div class="mb-4 relative">
               <button 
                 onclick="toggleFilterDropdown('category')" 
@@ -780,7 +830,9 @@
               </button>
               ${state.filterDropdownOpen.category ? `
                 <div class="absolute z-10 w-full bg-gray-700 rounded mt-1 shadow-lg max-h-48 overflow-y-auto">
-                  ${state.categories.map(cat => `
+                  ${state.categories
+                    .filter(cat => state.filterMacroCategory.length === 0 || state.filterMacroCategory.includes(cat.macroCategory || 'Spese variabili'))
+                    .map(cat => `
                     <label class="flex items-center gap-2 p-2 hover:bg-gray-600 cursor-pointer">
                       <input type="checkbox" ${state.filterCategory.includes(cat.id) ? 'checked' : ''} 
                         onchange="toggleFilterCategory('${cat.id}')" 
@@ -799,7 +851,7 @@
               ` : ''}
             </div>
             
-            ${state.filterAccount.length > 0 || state.filterCategory.length > 0 ? `
+            ${state.filterAccount.length > 0 || state.filterMacroCategory.length > 0 || state.filterCategory.length > 0 ? `
               <button onclick="clearFilters()" class="w-full bg-red-600 hover:bg-red-700 rounded p-2 mb-2 text-sm font-bold">
                 🗑️ Cancella tutti i filtri
               </button>

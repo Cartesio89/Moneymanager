@@ -103,11 +103,10 @@
           if (navigator.onLine) {
             await syncBidirectional();
           }
-        } else {
-          state.showSupabaseSetup = true;
         }
+        // NON mostrare setup se ci sono già dati locali
       } catch (err) {
-        state.showSupabaseSetup = true;
+        console.error('Supabase config error:', err);
       }
     }
 
@@ -746,6 +745,9 @@
             <button onclick="setView('hidden')" class="w-full text-left p-3 hover:bg-gray-700 rounded mb-2">👁️ Nascoste</button>
             <button onclick="setView('accounts')" class="w-full text-left p-3 hover:bg-gray-700 rounded mb-2">💳 Conti</button>
             <button onclick="setView('categories')" class="w-full text-left p-3 hover:bg-gray-700 rounded mb-2">🏷️ Categorie</button>
+            ${!state.supabaseClient ? `
+              <button onclick="state.showSupabaseSetup = true; state.menuOpen = false; render();" class="w-full text-left p-3 hover:bg-gray-700 rounded mb-2 border border-blue-500">⚙️ Configura Supabase</button>
+            ` : ''}
             ${state.supabaseClient && state.lastSync ? `
               <div class="text-xs text-gray-400 p-3 mt-4 border-t border-gray-700">
                 Ultima sync: ${new Date(state.lastSync).toLocaleString('it-IT')}

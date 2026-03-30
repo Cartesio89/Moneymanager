@@ -94,14 +94,14 @@
         const url = await dbOperation('settings', 'readonly', store => store.get('supabase_url'));
         const key = await dbOperation('settings', 'readonly', store => store.get('supabase_key'));
         const lastSyncData = await dbOperation('settings', 'readonly', store => store.get('last_sync'));
-        
+
         if (url?.value && key?.value) {
           state.supabaseClient = createClient(url.value, key.value);
           state.lastSync = lastSyncData?.value ? new Date(lastSyncData.value) : null;
-          
-          // Auto-sync all'avvio se online
+
+          // Auto-sync in background - NON await: non blocca il caricamento dei dati locali
           if (navigator.onLine) {
-            await syncBidirectional();
+            syncBidirectional();
           }
         }
         // NON mostrare setup se ci sono già dati locali
@@ -1129,10 +1129,18 @@
       }
     }
 
-    // Init
+    // Sync automatica quando torna la connessione
+    window.addEventListener('online', () => {
+      if (state.supabaseClient) {
+        showNotification('🌐 Connesso - sincronizzazione...');
+        syncBidirectional();
+      }
+    });
+
+    // Init: prima i dati locali (istantaneo), poi sync in background
     (async () => {
-      await checkSupabaseConfig();
       await loadData();
+      checkSupabaseConfig();
     })();
   </script>
 </body>

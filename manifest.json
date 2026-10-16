@@ -1,4 +1,5 @@
 {
+  "id": "/Moneymanager/app",
   "name": "MoneyManager",
   "short_name": "MoneyManager",
   "description": "Gestione finanze personali offline-first",

@@ -1,7 +1,7 @@
 'use strict';
 /* MoneyManager v6 — offline-first (IndexedDB) + sync Supabase con login */
 
-const APP_VERSION = '6.1.0';
+const APP_VERSION = '6.2.0';
 const SUPABASE_URL = 'https://ymvuotafffjbdvhtqkjn.supabase.co';
 // Chiave "anon": pubblica per progetto; la sicurezza dei dati è garantita da login + RLS sul DB.
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltdnVvdGFmZmZqYmR2aHRxa2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0OTE3NjQsImV4cCI6MjA3NzA2Nzc2NH0.wtbDlmmAXbdU58SOIuYsrapYpLXUhgs56m7OYH1ajHs';
@@ -584,11 +584,12 @@ function filterBar() {
 }
 
 /* ---------- viste: panoramica ---------- */
+const pieColor = (i) => `hsl(${Math.round((i * 137.508) % 360)} 72% ${[58, 48, 68][i % 3]}%)`;
 function donut(slices, total) {
   let acc = 0;
   const circles = slices.map((s) => {
-    const pct = (s.value / total) * 100;
-    const c = `<circle cx="21" cy="21" r="15.9155" fill="none" stroke="${esc(s.color)}" stroke-width="6" stroke-dasharray="${pct.toFixed(3)} ${(100 - pct).toFixed(3)}" stroke-dashoffset="${(-acc).toFixed(3)}"></circle>`;
+    const pct = (s.value / total) * 100, gap = slices.length > 1 && pct > 1 ? 0.35 : 0;
+    const c = `<circle cx="21" cy="21" r="15.9155" fill="none" stroke="${esc(s.color)}" stroke-width="6" stroke-dasharray="${Math.max(pct - gap, 0.05).toFixed(3)} ${(100 - Math.max(pct - gap, 0.05)).toFixed(3)}" stroke-dashoffset="${(-acc).toFixed(3)}"></circle>`;
     acc += pct; return c;
   }).join('');
   return `<svg viewBox="0 0 42 42" class="w-36 h-36 -rotate-90 shrink-0"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="#374151" stroke-width="6"></circle>${circles}</svg>`;
@@ -607,7 +608,8 @@ function breakdownHTML() {
   });
   let rows = [...groups.values()].sort((a, b) => b.value - a.value);
   const total = rows.reduce((s, r) => s + r.value, 0);
-  if (rows.length > 9) { const rest = rows.slice(8); rows = rows.slice(0, 8).concat([{ key: '__rest', name: 'Altre', color: '#6b7280', value: rest.reduce((s, r) => s + r.value, 0) }]); }
+  // ogni voce resta separata (niente "Altre"); in vista categorie i colori della torta sono distinti per posizione (i colori salvati sono spesso uguali tra loro)
+  if (by === 'category') rows.forEach((r, i) => { r.color = r.key === 'none' ? MACRO_COLORS['Senza categoria'] : pieColor(i); });
   const pill = (active, label, js) => `<button onclick="${js}" class="px-3 py-1.5 rounded-md text-xs font-bold ${active ? 'bg-blue-600 text-white' : 'text-gray-400'}">${label}</button>`;
   return `<div class="bg-gray-800 rounded-lg p-4 mb-4">
     <div class="flex justify-between items-center mb-3 gap-2">
@@ -619,10 +621,11 @@ function breakdownHTML() {
       <div class="relative">${donut(rows, total)}<div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none"><span class="text-[10px] text-gray-400">Totale</span><span class="text-sm font-bold">${fmt(total)}</span></div></div>
       <div class="flex-1 min-w-0 space-y-1.5">
         ${rows.slice(0, 6).map((r) => `<div class="flex items-center gap-2 text-xs"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${esc(r.color)}"></span><span class="truncate flex-1">${esc(r.name)}</span><span class="text-gray-400">${Math.round((r.value / total) * 100)}%</span></div>`).join('')}
+        ${rows.length > 6 ? `<div class="text-[11px] text-gray-500">+ ${rows.length - 6} voci nell'elenco sotto</div>` : ''}
       </div></div>
     <div class="mt-4 divide-y divide-gray-700">
       ${rows.map((r) => {
-        const clickable = by === 'category' && r.key !== 'none' && r.key !== '__rest';
+        const clickable = by === 'category' && r.key !== 'none';
         return `<${clickable ? 'button onclick="toggleFilterCategory(\'' + r.key + '\')"' : 'div'} class="w-full flex items-center gap-2 py-2 text-sm text-left">
           <span class="w-3 h-3 rounded-full shrink-0" style="background:${esc(r.color)}"></span><span class="flex-1 truncate">${esc(r.name)}</span>
           <span class="font-medium">${fmt(r.value)}</span><span class="text-xs text-gray-400 w-9 text-right">${Math.round((r.value / total) * 100)}%</span></${clickable ? 'button' : 'div'}>`;
@@ -940,26 +943,51 @@ function monthOptions(back, fwd) {
   for (let i = -back; i <= fwd; i++) { const k = addMonthsKey(cur, i); const [y, m] = k.split('-').map(Number); out.push({ value: k, label: MONTHS[m - 1] + ' ' + y }); }
   return out;
 }
+function dupBodyHTML() {
+  const d = state.dup, cur = currentMonthKey();
+  const nSel = d.sel.size;
+  const months = MONTHS.map((m, i) => {
+    const ym = d.year + '-' + pad2(i + 1), on = d.sel.has(ym);
+    return `<button type="button" onclick="dupToggle('${ym}')" aria-pressed="${on}" class="rounded-lg py-3 text-sm font-bold ${on ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'} ${ym === cur ? 'ring-1 ring-blue-400' : ''}">${m}</button>`;
+  }).join('');
+  const inYear = [...d.sel].filter((k) => k.startsWith(d.year + '-')).length;
+  const summary = [...d.sel].sort().map((k) => MONTHS[+k.slice(5, 7) - 1] + ' ' + k.slice(0, 4)).join(', ');
+  return `<div class="flex items-center justify-between mb-2">
+      <div class="flex items-center bg-gray-700 rounded-lg"><button type="button" onclick="dupYear(-1)" class="px-4 py-2" aria-label="Anno precedente">◀</button><span class="px-2 font-bold w-14 text-center" id="dup-year">${d.year}</span><button type="button" onclick="dupYear(1)" class="px-4 py-2" aria-label="Anno successivo">▶</button></div>
+      <div class="flex gap-3 text-xs"><button type="button" onclick="dupAllYear()" class="text-blue-400">Tutto l'anno</button><button type="button" onclick="dupNoneYear()" class="${inYear ? 'text-blue-400' : 'text-gray-500'}">Nessuno</button></div></div>
+    <div class="grid grid-cols-3 gap-2 mb-3">${months}</div>
+    <div class="text-sm text-gray-400 mb-3"><span id="dup-count" class="font-bold text-gray-200">${nSel}</span> ${nSel === 1 ? 'mese selezionato' : 'mesi selezionati'}${nSel ? `<div class="text-xs mt-1 break-words" id="dup-summary">${esc(summary)}</div>` : ''}</div>`;
+}
+function dupRefresh() { const b = $('dup-body'); if (b) b.innerHTML = dupBodyHTML(); }
+function dupToggle(ym) { const s = state.dup.sel; if (s.has(ym)) s.delete(ym); else s.add(ym); dupRefresh(); }
+function dupYear(dy) { state.dup.year = Math.min(2100, Math.max(1990, state.dup.year + dy)); dupRefresh(); }
+function dupAllYear() { for (let i = 1; i <= 12; i++) state.dup.sel.add(state.dup.year + '-' + pad2(i)); dupRefresh(); }
+function dupNoneYear() { for (let i = 1; i <= 12; i++) state.dup.sel.delete(state.dup.year + '-' + pad2(i)); dupRefresh(); }
 function openDuplicate(id) {
   const t = state.transactions.find((x) => x.id === id); if (!t) return;
   state.modal = 'duplicate'; state.editing = t;
-  showModal(`${modalHead('Duplica movimento')}<p class="text-sm text-gray-400 mb-3">Scegli i mesi su cui copiare «${esc(t.description || catName(t.categoryId))}»</p>
-    <div class="space-y-1 max-h-72 overflow-y-auto mb-3 bg-gray-700 rounded-lg p-2">${monthOptions(18, 18).map((m) => `<label class="flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-gray-600"><input type="checkbox" value="${m.value}" class="month-checkbox w-4 h-4" onchange="$('dup-count').textContent=document.querySelectorAll('.month-checkbox:checked').length"><span class="text-sm">${m.label}</span></label>`).join('')}</div>
-    <div class="text-sm text-gray-400 mb-3"><span id="dup-count">0</span> mese/i selezionato/i</div>
+  state.dup = { year: +t.date.slice(0, 4), sel: new Set() };
+  showModal(`${modalHead('Duplica movimento')}<p class="text-sm text-gray-400 mb-3">Copia «${esc(t.description || catName(t.categoryId))}» (${fmt(toCents(t.amount))}) su altri mesi.</p>
+    <label class="block text-xs text-gray-400 mb-1">Giorno del mese</label>
+    <div class="flex items-center gap-3 mb-1"><input id="dup-day" type="number" inputmode="numeric" min="1" max="31" value="${+t.date.slice(8, 10)}" class="${inputCls} !w-24 text-center font-bold"><span class="text-xs text-gray-500">se il mese è più corto uso l'ultimo giorno</span></div>
+    <div class="text-xs text-gray-400 mt-4 mb-1">Anno e mesi</div>
+    <div id="dup-body">${dupBodyHTML()}</div>
     <div id="form-err" class="hidden text-sm text-red-400 mb-3"></div>
     <div class="grid grid-cols-2 gap-2"><button onclick="closeModal()" class="bg-gray-700 rounded-lg p-3">Annulla</button><button onclick="duplicateTransaction()" class="bg-blue-600 hover:bg-blue-700 rounded-lg p-3 font-bold">Duplica</button></div>`);
 }
 async function duplicateTransaction() {
-  const months = [...document.querySelectorAll('.month-checkbox:checked')].map((c) => c.value);
+  const months = [...state.dup.sel].sort();
   if (!months.length) { formErr('Seleziona almeno un mese'); return; }
-  const tx = state.editing, day = +tx.date.slice(8, 10), now = nowISO();
+  const day = parseInt($('dup-day').value, 10);
+  if (!(day >= 1 && day <= 31)) { formErr('Giorno non valido (1-31)'); return; }
+  const tx = state.editing, now = nowISO();
   const recs = months.map((ym) => {
     const d = pad2(Math.min(day, daysInMonth(ym)));
     const { transferId, recurringId, ...rest } = tx;
     return { ...rest, id: generateUUID(), date: ym + '-' + d, createdAt: now, updatedAt: now, updated_at: now, deleted: false, deleted_at: null };
   });
   await dbPutMany('transactions', recs);
-  closeModal(); await afterMutation(); toast(recs.length + ' movimenti creati');
+  closeModal(); await afterMutation(); toast(recs.length + (recs.length === 1 ? ' movimento creato' : ' movimenti creati'));
 }
 
 /* --- conti --- */

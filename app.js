@@ -1,7 +1,7 @@
 'use strict';
 /* MoneyManager v6 — offline-first (IndexedDB) + sync Supabase con login */
 
-const APP_VERSION = '6.0.0';
+const APP_VERSION = '6.1.0';
 const SUPABASE_URL = 'https://ymvuotafffjbdvhtqkjn.supabase.co';
 // Chiave "anon": pubblica per progetto; la sicurezza dei dati è garantita da login + RLS sul DB.
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltdnVvdGFmZmZqYmR2aHRxa2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0OTE3NjQsImV4cCI6MjA3NzA2Nzc2NH0.wtbDlmmAXbdU58SOIuYsrapYpLXUhgs56m7OYH1ajHs';
@@ -443,7 +443,59 @@ function countPendingRecurring(rule) { // quanti movimenti verrebbero creati ora
 }
 
 /* ---------- navigazione / filtri UI ---------- */
-function setView(v) { state.view = v; hideSnack(); render(); window.scrollTo(0, 0); }
+/* Cronologia: il tasto "indietro" (Android, swipe iOS, browser) risale le schermate dell'app
+   invece di uscire. Ogni cambio di schermata e ogni modale/foglio è una voce di history. */
+const VIEWS = ['home', 'list', 'accounts', 'more', 'categories', 'recurring', 'hidden'];
+const HIST = { idx: 0 };
+let histModal = false; // true se la voce di history corrente è quella di un modale aperto
+const histState = (extra) => Object.assign({ mm: 1, idx: HIST.idx, view: state.view, modal: false, from: null, scroll: 0 }, extra);
+function histPush(extra) {
+  try {
+    history.replaceState(Object.assign({}, history.state || {}, { scroll: window.scrollY }), ''); // ricorda lo scroll della voce che lascio
+    HIST.idx++; history.pushState(histState(extra), '');
+  } catch (e) { /* history non disponibile: l'app funziona comunque */ }
+}
+function histInit() {
+  try {
+    history.scrollRestoration = 'manual';
+    const st = history.state;
+    if (st && st.mm) { // ricarica pagina: resta sulla schermata in cui eri
+      HIST.idx = st.idx || 0;
+      if (VIEWS.includes(st.view)) state.view = st.view;
+      history.replaceState(Object.assign({}, st, { modal: false, view: state.view }), '');
+    } else { HIST.idx = 0; history.replaceState(histState({ view: state.view }), ''); }
+  } catch (e) { /* ignora */ }
+}
+function histSync() { // dopo closeModal: se non c'è più un modale, elimina la sua voce di history
+  if (histModal && !$('modal-root').firstElementChild) { histModal = false; try { history.back(); } catch (e) { /* ignora */ } }
+}
+function goBack(fallback) { // freccia ← nell'app: stesso effetto del tasto indietro se arrivo da lì
+  const st = history.state;
+  if (!histModal && st && st.mm && st.from === fallback) history.back(); else setView(fallback);
+}
+window.addEventListener('popstate', (e) => {
+  const st = e.state && e.state.mm ? e.state : { mm: 1, idx: 0, view: 'home', modal: false, scroll: 0 };
+  HIST.idx = st.idx || 0;
+  if (st.modal) { // sono "avanti" su un modale: se non esiste più, rimbalza indietro
+    if ($('modal-root').firstElementChild) { histModal = true; return; }
+    try { history.back(); } catch (err) { /* ignora */ }
+    return;
+  }
+  histModal = false;
+  if ($('modal-root').firstElementChild) closeModalDom();
+  if (VIEWS.includes(st.view) && st.view !== state.view) { state.view = st.view; hideSnack(); render(); }
+  window.scrollTo(0, st.scroll || 0);
+});
+
+function setView(v) {
+  hideSnack();
+  const from = state.view;
+  if (histModal) { // un modale aperto: la sua voce diventa la nuova schermata
+    closeModalDom(); histModal = false;
+    try { history.replaceState(histState({ view: v, from }), ''); } catch (e) { /* ignora */ }
+  } else if (v !== from) histPush({ view: v, from });
+  state.view = v; render(); window.scrollTo(0, 0);
+}
 function changeYear(d) { state.filterYear += d; state.filterMonth = null; render(); }
 function selectMonth(i) { state.filterMonth = state.filterMonth === i ? null : i; render(); }
 function toggleFilters() { state.filtersOpen = !state.filtersOpen; render(); }
@@ -706,7 +758,7 @@ function viewMore() {
     ${row('📥', 'Esporta CSV', 'Movimenti del periodo/filtri attuali (per Excel)', 'exportCSV()')}
     <div class="text-center text-[11px] text-gray-600 mt-6">MoneyManager v${APP_VERSION}</div>`;
 }
-const backBtn = (title) => `<div class="flex items-center gap-2 mb-4"><button onclick="setView('more')" class="px-3 py-2 bg-gray-800 rounded-lg">←</button><h2 class="text-lg font-bold">${title}</h2></div>`;
+const backBtn = (title) => `<div class="flex items-center gap-2 mb-4"><button onclick="goBack('more')" class="px-3 py-2 bg-gray-800 rounded-lg" aria-label="Indietro">←</button><h2 class="text-lg font-bold">${title}</h2></div>`;
 function viewCategories() {
   const sorted = state.categories.slice().sort((a, b) => MACROS.indexOf(a.macroCategory) - MACROS.indexOf(b.macroCategory) || a.name.localeCompare(b.name, 'it'));
   return `${backBtn('Categorie')}<button onclick="openCategoryModal()" class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg p-3 font-bold mb-4">➕ Nuova categoria</button>
@@ -743,10 +795,12 @@ function viewHidden() {
 function showModal(inner, { dismissible = true, top = false } = {}) {
   hideSnack();
   state.dismissible = dismissible;
+  if (!histModal) { histPush({ modal: true }); histModal = true; }
   $('modal-root').innerHTML = `<div class="fixed inset-0 z-50 flex ${top ? 'items-start' : 'items-end'} sm:items-center justify-center bg-black/70" onmousedown="if(event.target===this&&state.dismissible)closeModal()">
     <div class="bg-gray-800 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[92vh] overflow-y-auto sheet-anim" style="padding-bottom:calc(1.25rem + env(safe-area-inset-bottom))">${inner}</div></div>`;
 }
-function closeModal() { state.modal = null; state.editing = null; $('modal-root').innerHTML = ''; }
+function closeModalDom() { state.modal = null; state.editing = null; $('modal-root').innerHTML = ''; }
+function closeModal() { closeModalDom(); queueMicrotask(histSync); }
 const modalHead = (title) => `<div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">${title}</h2><button type="button" onclick="closeModal()" class="text-gray-400 text-2xl leading-none px-2" aria-label="Chiudi">×</button></div>`;
 const inputCls = 'w-full bg-gray-700 rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-blue-500';
 const formErr = (msg) => { const e = $('form-err'); if (e) { e.textContent = msg; e.classList.remove('hidden'); } };
@@ -1105,6 +1159,7 @@ async function boot() {
   try { await initDB(); }
   catch (e) { $('main').innerHTML = '<p class="p-6 text-red-400">Impossibile aprire il database locale (modalità privata?). Riapri l\'app in una scheda normale.</p>'; return; }
   await loadPrefs();
+  histInit();
   await loadData();
   await initCloud();
 }

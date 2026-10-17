@@ -2,8 +2,8 @@
 // - File dell'app: rete per prima (4s di timeout) con fallback sulla cache => dopo un deploy vedi subito la versione nuova, offline funziona comunque
 // - Libreria Supabase (CDN): in cache (richiesta CORS, quindi davvero memorizzabile) => l'app parte anche offline
 // - Chiamate a Supabase: mai intercettate
-const CACHE_NAME = 'moneymanager-v8';
-const LOCAL = ['./', './index.html', './app.css?v=8', './app.js?v=8', './manifest.json'];
+const CACHE_NAME = 'moneymanager-v9';
+const LOCAL = ['./', './index.html', './app.css?v=9', './app.js?v=9', './manifest.json'];
 const CDN = ['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'];
 
 self.addEventListener('install', (event) => {

@@ -1,7 +1,7 @@
 'use strict';
 /* MoneyManager v6 — offline-first (IndexedDB) + sync Supabase con login */
 
-const APP_VERSION = '6.2.0';
+const APP_VERSION = '6.3.0';
 const SUPABASE_URL = 'https://ymvuotafffjbdvhtqkjn.supabase.co';
 // Chiave "anon": pubblica per progetto; la sicurezza dei dati è garantita da login + RLS sul DB.
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltdnVvdGFmZmZqYmR2aHRxa2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0OTE3NjQsImV4cCI6MjA3NzA2Nzc2NH0.wtbDlmmAXbdU58SOIuYsrapYpLXUhgs56m7OYH1ajHs';
@@ -123,16 +123,17 @@ let state = {
   prefs: { lastAccount: null, lastCat: { expense: null, income: null } },
   supabaseClient: null, session: null, online: typeof navigator !== 'undefined' ? navigator.onLine : true,
   syncing: false, syncError: null, lastSync: null, dirty: false, mutationSeq: 0,
-  loginPrompted: false, authMsg: '', lastBackup: null, cloudChecked: false, recurringAfterSync: false
+  loginPrompted: false, authMsg: '', lastBackup: null, cloudChecked: false, recurringAfterSync: false, colorsChecked: false
 };
 
 /* ---------- caricamento dati ---------- */
+const byName = (a, b) => String(a.name).trim().localeCompare(String(b.name).trim(), 'it', { sensitivity: 'base' });
 async function loadData() {
   const [accs, cats, txs, recs] = await Promise.all(['accounts', 'categories', 'transactions', 'recurring'].map(dbGetAll));
   state.accAll = new Map(accs.map((a) => [a.id, a]));
   state.catAll = new Map(cats.map((c) => [c.id, c]));
   state.accounts = accs.filter((a) => !a.deleted).sort((a, b) => tms(a.createdAt) - tms(b.createdAt) || a.name.localeCompare(b.name, 'it'));
-  state.categories = cats.filter((c) => !c.deleted).sort((a, b) => a.name.localeCompare(b.name, 'it'));
+  state.categories = cats.filter((c) => !c.deleted).sort(byName);
   state.transactions = txs.filter((t) => !t.deleted);
   state.recurring = recs.filter((r) => !r.deleted).sort((a, b) => (a.description || '').localeCompare(b.description || '', 'it'));
   state.accById = new Map(state.accounts.map((a) => [a.id, a]));
@@ -345,6 +346,7 @@ async function syncNow(manual = false) {
   await loadData();
   if (!state.syncError && state.mutationSeq !== seqAtStart) scheduleSync(300);
   if (!state.syncError && !state.recurringAfterSync) { state.recurringAfterSync = true; await generateRecurring(); }
+  if (!state.syncError) await autoColorsOnce();
   if (manual) toast(state.syncError ? 'Errore: ' + state.syncError : 'Sincronizzato ✓');
   renderHeader();
 }
@@ -583,6 +585,71 @@ function filterBar() {
       ${n ? `<button onclick="clearFilters()" class="w-full bg-red-600 hover:bg-red-700 rounded-lg p-2 mt-1 text-sm font-bold">Cancella tutti i filtri</button>` : ''}</div>` : ''}`;
 }
 
+/* ---------- colori categorie: tutti diversi, e ben distinti tra voci con la stessa prima parola ---------- */
+const COLOR_VARIANTS = [[72, 58], [90, 44], [60, 72], [82, 52], [96, 65], [52, 48], [78, 70], [70, 42], [88, 56], [64, 62]]; // [saturazione, luminosità]
+function hslHex(h, sat, lig) {
+  const sa = sat / 100, l = lig / 100, k = (n) => (n + h / 30) % 12, a = sa * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return '#' + [f(0), f(8), f(4)].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+}
+function colorPool(n) { // almeno n colori candidati: 12 tonalità x varianti di saturazione/luminosità
+  const out = [], V = Math.max(COLOR_VARIANTS.length, Math.ceil(n * 1.5 / 12));
+  for (let v = 0; v < V; v++) {
+    const [sat, lig] = COLOR_VARIANTS[v % COLOR_VARIANTS.length], off = (v % 2 ? 15 : 0) + Math.floor(v / COLOR_VARIANTS.length) * 7;
+    for (let k = 0; k < 12; k++) out.push({ hex: hslHex((k * 30 + off) % 360, sat, lig), h: (k * 30 + off) % 360, s: sat, l: lig });
+  }
+  return out;
+}
+const colorDist = (a, b) => { const dh = Math.abs(a.h - b.h); return Math.min(dh, 360 - dh) + 1.2 * Math.abs(a.l - b.l) + 0.4 * Math.abs(a.s - b.s); };
+const firstWord = (name) => ((String(name).toLowerCase().match(/[\p{L}\p{N}]+/u) || [''])[0]);
+const hueDiff = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
+function distinctColorPlan(cats) { // id -> colore esadecimale. Deterministico: stessa lista => stessi colori su ogni dispositivo
+  const list = cats.slice().sort((a, b) => byName(a, b) || String(a.id).localeCompare(String(b.id)));
+  const pool = colorPool(list.length), used = new Set(), assigned = [], plan = new Map(), groups = new Map();
+  list.forEach((c) => { const g = firstWord(c.name); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(c); });
+  let gi = 0;
+  const target = new Map(); // tonalità desiderata: le voci con la stessa prima parola si dividono equamente il cerchio cromatico
+  groups.forEach((members) => {
+    const base = (gi++ * 137.508) % 360;
+    members.forEach((c, j) => target.set(c.id, (base + j * (360 / members.length)) % 360));
+  });
+  list.forEach((c) => {
+    const t = target.get(c.id), free = pool.filter((p) => !used.has(p.hex));
+    let best = null, bs = -Infinity;
+    free.forEach((p) => {
+      const near = assigned.filter((q) => hueDiff(q.h, p.h) <= 40); // colori vicini per tonalità: devono differire per luminosità/saturazione
+      const sep = near.length ? Math.min(...near.map((q) => 1.2 * Math.abs(q.l - p.l) + 0.4 * Math.abs(q.s - p.s) + hueDiff(q.h, p.h))) : 99;
+      const score = -hueDiff(t, p.h) * 10 + Math.min(sep, 40);
+      if (score > bs) { bs = score; best = p; }
+    });
+    used.add(best.hex); assigned.push(best); plan.set(c.id, best.hex);
+  });
+  return plan;
+}
+async function assignDistinctColors(manual) {
+  const plan = distinctColorPlan(state.categories), recs = [];
+  state.categories.forEach((c) => { const col = plan.get(c.id); if (col && (c.color || '').toLowerCase() !== col) recs.push(touch({ ...c, color: col })); });
+  if (recs.length) { await dbPutMany('categories', recs); await afterMutation(); }
+  if (manual) toast(recs.length ? recs.length + ' categorie ricolorate' : 'Colori già distinti');
+  return recs.length;
+}
+async function autoColorsOnce() { // una sola volta per dispositivo, appena ci sono categorie
+  if (state.colorsChecked || !state.categories.length) return;
+  state.colorsChecked = true;
+  if (await settingGet('colors_distinct_v1')) return;
+  await assignDistinctColors(false);
+  await settingSet('colors_distinct_v1', '1');
+}
+function nextCategoryColor() { // colore per una categoria nuova: non usato e lontano da quelli già presi
+  const pool = colorPool(state.categories.length + 1), used = new Set(state.categories.map((c) => (c.color || '').toLowerCase()));
+  const taken = pool.filter((p) => used.has(p.hex)), free = pool.filter((p) => !used.has(p.hex));
+  if (!free.length) return '#3b82f6';
+  let best = free[0], bs = -1;
+  free.forEach((p) => { const sc = taken.length ? Math.min(...taken.map((t) => colorDist(p, t))) : 999; if (sc > bs) { bs = sc; best = p; } });
+  return best.hex;
+}
+function recolorAll() { if (confirm('Assegnare a tutte le categorie colori diversi? I colori scelti a mano verranno sostituiti.')) assignDistinctColors(true); }
+
 /* ---------- viste: panoramica ---------- */
 const pieColor = (i) => `hsl(${Math.round((i * 137.508) % 360)} 72% ${[58, 48, 68][i % 3]}%)`;
 function donut(slices, total) {
@@ -608,8 +675,8 @@ function breakdownHTML() {
   });
   let rows = [...groups.values()].sort((a, b) => b.value - a.value);
   const total = rows.reduce((s, r) => s + r.value, 0);
-  // ogni voce resta separata (niente "Altre"); in vista categorie i colori della torta sono distinti per posizione (i colori salvati sono spesso uguali tra loro)
-  if (by === 'category') rows.forEach((r, i) => { r.color = r.key === 'none' ? MACRO_COLORS['Senza categoria'] : pieColor(i); });
+  // ogni voce resta separata (niente "Altre"); se due categorie hanno lo stesso colore salvato, la torta ne usa uno alternativo
+  if (by === 'category') { const seen = new Set(); rows.forEach((r, i) => { const col = String(r.color).toLowerCase(); if (r.key === 'none') r.color = MACRO_COLORS['Senza categoria']; else if (seen.has(col)) r.color = pieColor(i); seen.add(String(r.color).toLowerCase()); }); }
   const pill = (active, label, js) => `<button onclick="${js}" class="px-3 py-1.5 rounded-md text-xs font-bold ${active ? 'bg-blue-600 text-white' : 'text-gray-400'}">${label}</button>`;
   return `<div class="bg-gray-800 rounded-lg p-4 mb-4">
     <div class="flex justify-between items-center mb-3 gap-2">
@@ -764,7 +831,8 @@ function viewMore() {
 const backBtn = (title) => `<div class="flex items-center gap-2 mb-4"><button onclick="goBack('more')" class="px-3 py-2 bg-gray-800 rounded-lg" aria-label="Indietro">←</button><h2 class="text-lg font-bold">${title}</h2></div>`;
 function viewCategories() {
   const sorted = state.categories.slice().sort((a, b) => MACROS.indexOf(a.macroCategory) - MACROS.indexOf(b.macroCategory) || a.name.localeCompare(b.name, 'it'));
-  return `${backBtn('Categorie')}<button onclick="openCategoryModal()" class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg p-3 font-bold mb-4">➕ Nuova categoria</button>
+  return `${backBtn('Categorie')}<button onclick="openCategoryModal()" class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg p-3 font-bold mb-2">➕ Nuova categoria</button>
+    <button onclick="recolorAll()" class="w-full bg-gray-800 hover:bg-gray-700 rounded-lg p-3 text-sm mb-4">🎨 Colori diversi per tutte le categorie</button>
     ${sorted.map((c) => `<div class="bg-gray-800 rounded-lg p-3 mb-2 flex items-center justify-between">
       <div class="flex items-center gap-3 min-w-0"><div class="w-4 h-4 rounded shrink-0" style="background:${esc(c.color)}"></div><div class="min-w-0"><div class="font-bold truncate">${esc(c.name)}</div><div class="text-xs text-gray-400">${esc(c.macroCategory || 'Spese variabili')}</div></div></div>
       <div class="flex gap-2"><button onclick="openCategoryModal('${c.id}')" class="p-2 bg-gray-700 rounded" aria-label="Modifica">✏️</button><button onclick="deleteCategory('${c.id}')" class="p-2 bg-gray-700 rounded" aria-label="Elimina">🗑️</button></div></div>`).join('')}
@@ -809,12 +877,10 @@ const inputCls = 'w-full bg-gray-700 rounded-lg p-3 text-base outline-none focus
 const formErr = (msg) => { const e = $('form-err'); if (e) { e.textContent = msg; e.classList.remove('hidden'); } };
 
 /* --- movimento (nuovo / modifica / giroconto) --- */
-function categoryOptionsHTML(type, selectedId) {
-  const pref = type === 'income' ? (c) => c.macroCategory === 'Entrate' : (c) => c.macroCategory !== 'Entrate';
-  const a = state.categories.filter(pref), b = state.categories.filter((c) => !pref(c));
-  const opt = (c) => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name)}</option>`;
+function categoryOptionsHTML(type, selectedId) { // un solo elenco, in ordine alfabetico
+  const opt = (c) => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name.trim())}</option>`;
   const orphan = selectedId && !state.catById.has(selectedId) ? `<option value="${esc(selectedId)}" selected>(eliminata) ${esc(catName(selectedId))}</option>` : '';
-  return `<option value="">Senza categoria</option>${orphan}${a.map(opt).join('')}${b.length ? `<optgroup label="Altre">${b.map(opt).join('')}</optgroup>` : ''}`;
+  return `<option value="">Senza categoria</option>${orphan}${state.categories.map(opt).join('')}`;
 }
 function accountOptionsHTML(selectedId) {
   return state.accounts.map((a) => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
@@ -1024,7 +1090,7 @@ function openCategoryModal(id = null) {
     <label class="text-xs text-gray-400">Nome</label><input id="c-name" value="${esc(c ? c.name : '')}" class="${inputCls} mb-3">
     <label class="text-xs text-gray-400">Macrocategoria</label>
     <select id="c-macro" class="${inputCls} mb-3">${MACROS.map((m) => `<option ${(c ? c.macroCategory : 'Spese variabili') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
-    <label class="text-xs text-gray-400">Colore</label><input id="c-color" type="color" value="${esc(c ? c.color : '#3b82f6')}" class="w-full bg-gray-700 rounded-lg h-12 mb-3">
+    <label class="text-xs text-gray-400">Colore</label><input id="c-color" type="color" value="${esc(c ? c.color : nextCategoryColor())}" class="w-full bg-gray-700 rounded-lg h-12 mb-3">
     <div id="form-err" class="hidden text-sm text-red-400 mb-3"></div>
     <div class="grid grid-cols-2 gap-2"><button type="button" onclick="closeModal()" class="bg-gray-700 rounded-lg p-3">Annulla</button><button type="submit" class="bg-blue-600 hover:bg-blue-700 rounded-lg p-3 font-bold">Salva</button></div></form>`, { dismissible: false });
 }
@@ -1190,5 +1256,6 @@ async function boot() {
   histInit();
   await loadData();
   await initCloud();
+  await autoColorsOnce();
 }
 if (typeof document !== 'undefined' && document.getElementById('main')) boot();
